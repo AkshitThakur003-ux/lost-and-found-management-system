@@ -1,0 +1,603 @@
+// ---------------------------------------------------------------------------
+// Lost & Found Management System (C++)
+// ---------------------------------------------------------------------------
+// This project demonstrates a beginner-friendly implementation of:
+// - Object-Oriented Programming (inheritance, polymorphism, abstraction)
+// - Custom exception handling using a self-made class (MyException)
+// - A simple template class Storage<T>
+// - File handling for persistent storage (items.txt)
+// - Record management with Add, Display, Search, Update, Delete operations
+// - Clean modular structure with classes for input, formatting, menu, login,
+//   data storage, and controller logic
+//
+// This code is intentionally simple and readable for learning purposes.
+// ---------------------------------------------------------------------------
+
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <iomanip>
+#include <limits>
+#include <cstdlib>
+
+using namespace std;
+
+// ===========================================================================
+// Global constants and helper utilities
+// ===========================================================================
+
+const string DATA_FILE = "items.txt";   // File storing all item records
+const char FIELD_DELIM = '|';           // Delimiter for saving fields
+
+// Column widths for formatted table output
+const int COL_ID = 8;
+const int COL_NAME = 22;
+const int COL_STATUS = 10;
+const int COL_LOCATION = 20;
+const int COL_DATE = 14;
+const int COL_CONTACT = 22;
+
+// Clear screen (cross-platform)
+void clearScreen() {
+#ifdef _WIN32
+    system("cls");
+#else
+    system("clear");
+#endif
+}
+
+// Wait for user to press Enter
+void waitForEnter() {
+    cout << "\nPress Enter to continue...";
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+}
+
+// Trim whitespace from both ends
+string trim(const string &s) {
+    size_t start = 0;
+    while (start < s.length() && isspace((unsigned char)s[start])) start++;
+    size_t end = s.length();
+    while (end > start && isspace((unsigned char)s[end - 1])) end--;
+    return s.substr(start, end - start);
+}
+
+// Safe stoi wrapper
+int safeStoi(const string &s) {
+    try { return stoi(s); }
+    catch (...) { return 0; }
+}
+
+// ===========================================================================
+// Custom Exception Class
+// ===========================================================================
+
+class MyException {
+public:
+    string message;
+
+    MyException() : message("Unknown error") {}
+    MyException(const string &msg) : message(msg) {}
+
+    void showMessage() const {
+        cout << "Error: " << message << endl;
+    }
+};
+
+// ===========================================================================
+// Template Class: Storage<T>
+// Simple demonstration of a custom template class.
+// ===========================================================================
+
+template <class T>
+class Storage {
+public:
+    T value;
+
+    Storage() {}
+    Storage(const T &v) : value(v) {}
+
+    void setValue(const T &v) { value = v; }
+    T getValue() const { return value; }
+
+    void showValue() const { cout << value << endl; }
+};
+
+// ===========================================================================
+// Abstract Base Class: Record
+// Defines a common interface for record-type objects.
+// ===========================================================================
+
+class Record {
+public:
+    virtual ~Record() {}
+    virtual void display() const = 0;     // For table display
+    virtual string serialize() const = 0; // Convert to a file-save format
+};
+
+// ===========================================================================
+// Item Class – Represents a lost/found item
+// ===========================================================================
+
+class Item : public Record {
+public:
+    int id;
+    string name;
+    string description;
+    string location;
+    string date;
+    string contact;
+    string status;
+
+    Item()
+        : id(0), status("Lost") {}
+
+    Item(int id_, const string &name_, const string &desc_,
+         const string &location_, const string &date_,
+         const string &contact_, const string &status_)
+        : id(id_), name(name_), description(desc_),
+          location(location_), date(date_), contact(contact_),
+          status(status_) {}
+
+    // Display item in table format
+    void display() const override {
+        cout << left
+             << setw(COL_ID) << id
+             << setw(COL_NAME) << truncateString(name, COL_NAME - 1)
+             << setw(COL_STATUS) << status
+             << setw(COL_LOCATION) << truncateString(location, COL_LOCATION - 1)
+             << setw(COL_DATE) << date
+             << setw(COL_CONTACT) << truncateString(contact, COL_CONTACT - 1)
+             << endl;
+    }
+
+    // Convert object to a single line for file storage
+    string serialize() const override {
+        string out = to_string(id);
+        out.push_back(FIELD_DELIM);
+        out += name;
+        out.push_back(FIELD_DELIM);
+        out += status;
+        out.push_back(FIELD_DELIM);
+        out += location;
+        out.push_back(FIELD_DELIM);
+        out += date;
+        out.push_back(FIELD_DELIM);
+        out += contact;
+        return out;
+    }
+
+    // Create Item object from saved file line
+    static Item deserialize(const string &line) {
+        vector<string> parts = splitLine(line, FIELD_DELIM);
+        Item it;
+
+        if (parts.size() >= 1) it.id = safeStoi(parts[0]);
+        if (parts.size() >= 2) it.name = parts[1];
+        if (parts.size() >= 3) it.status = parts[2];
+        if (parts.size() >= 4) it.location = parts[3];
+        if (parts.size() >= 5) it.date = parts[4];
+        if (parts.size() >= 6) it.contact = parts[5];
+
+        return it;
+    }
+
+private:
+    // Simple string split helper
+    static vector<string> splitLine(const string &s, char delim) {
+        vector<string> result;
+        string current = "";
+        for (char c : s) {
+            if (c == delim) {
+                result.push_back(current);
+                current = "";
+            } else {
+                current.push_back(c);
+            }
+        }
+        result.push_back(current);
+        return result;
+    }
+
+    // Truncate long text for clean table output
+    static string truncateString(const string &s, size_t maxLen) {
+        if (s.length() <= maxLen) return s;
+        return s.substr(0, maxLen - 3) + "...";
+    }
+};
+
+// ===========================================================================
+// LostItem & FoundItem: Derived classes demonstrating polymorphism
+// ===========================================================================
+
+class LostItem : public Item {
+public:
+    LostItem() { status = "Lost"; }
+    LostItem(int id_, const string &name_, const string &desc_,
+             const string &loc_, const string &date_,
+             const string &contact_)
+        : Item(id_, name_, desc_, loc_, date_, contact_, "Lost") {}
+};
+
+class FoundItem : public Item {
+public:
+    FoundItem() { status = "Found"; }
+    FoundItem(int id_, const string &name_, const string &desc_,
+              const string &loc_, const string &date_,
+              const string &contact_)
+        : Item(id_, name_, desc_, loc_, date_, contact_, "Found") {}
+};
+
+// ===========================================================================
+// UserInput Class – Cleaner handling of user input and validation
+// ===========================================================================
+
+class UserInput {
+public:
+    int getInt(const string &prompt) {
+        int value;
+        while (true) {
+            cout << prompt;
+            if (cin >> value) {
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                return value;
+            }
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            cout << "Invalid input. Enter a number.\n";
+        }
+    }
+
+    string getNonEmptyString(const string &prompt) {
+        string s;
+        while (true) {
+            cout << prompt;
+            getline(cin, s);
+            s = trim(s);
+            if (!s.empty()) return s;
+            cout << "Input cannot be empty.\n";
+        }
+    }
+
+    bool confirm(const string &prompt) {
+        string ans;
+        while (true) {
+            cout << prompt << " (y/n): ";
+            getline(cin, ans);
+            if (ans == "y" || ans == "Y") return true;
+            if (ans == "n" || ans == "N") return false;
+        }
+    }
+};
+
+// ===========================================================================
+// Formatter Class – Displays banners, headers, help text
+// ===========================================================================
+
+class Formatter {
+public:
+    void printBanner() const {
+        cout << "=====================================================================\n";
+        cout << "                     Lost & Found Management System                  \n";
+        cout << "=====================================================================\n";
+    }
+
+    void printTableHeader() const {
+        cout << left
+             << setw(COL_ID) << "ID"
+             << setw(COL_NAME) << "Name"
+             << setw(COL_STATUS) << "Status"
+             << setw(COL_LOCATION) << "Location"
+             << setw(COL_DATE) << "Date"
+             << setw(COL_CONTACT) << "Contact" << endl;
+        printLine();
+    }
+
+    void printLine() const {
+        int total = COL_ID + COL_NAME + COL_STATUS +
+                    COL_LOCATION + COL_DATE + COL_CONTACT;
+        cout << string(total, '-') << endl;
+    }
+};
+
+// ===========================================================================
+// FileManager – Handles reading/writing items from/to items.txt
+// ===========================================================================
+
+class FileManager {
+public:
+    bool appendItem(const Item &it) {
+        ofstream ofs(DATA_FILE, ios::app);
+        if (!ofs) throw MyException("Cannot open file for writing.");
+        ofs << it.serialize() << "\n";
+        return true;
+    }
+
+    vector<Item> readAllItems() {
+        vector<Item> items;
+        ifstream ifs(DATA_FILE);
+        if (!ifs) return items;
+
+        string line;
+        while (getline(ifs, line)) {
+            line = trim(line);
+            if (!line.empty()) items.push_back(Item::deserialize(line));
+        }
+        return items;
+    }
+
+    bool writeAllItems(const vector<Item> &items) {
+        ofstream ofs(DATA_FILE, ios::trunc);
+        if (!ofs) throw MyException("Cannot open file for update.");
+        for (auto &it : items) ofs << it.serialize() << "\n";
+        return true;
+    }
+};
+
+// ===========================================================================
+// Menu Class – Shows main menu and returns user choice
+// ===========================================================================
+
+class Menu {
+public:
+    int showMainMenu() {
+        cout << "\nMain Menu:\n";
+        cout << "1. Register Lost Item\n";
+        cout << "2. Register Found Item\n";
+        cout << "3. Display All Items\n";
+        cout << "4. Search Items by Name\n";
+        cout << "5. Update Item by ID\n";
+        cout << "6. Delete Item by ID\n";
+        cout << "7. Exit\n";
+        cout << "Enter choice: ";
+
+        int ch;
+        if (cin >> ch) {
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            return ch;
+        }
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        return -1;
+    }
+};
+
+// ===========================================================================
+// Login Class – Very basic (demo only)
+// ===========================================================================
+
+class Login {
+public:
+    bool doLogin() {
+        cout << "\nLogin (optional). Press Enter for guest.\n";
+        cout << "Username: ";
+        string user;
+        getline(cin, user);
+
+        cout << "Password: ";
+        string pass;
+        getline(cin, pass);
+
+        if (user == "admin" && pass == "admin") {
+            cout << "Admin login successful.\n";
+            return true;
+        }
+
+        cout << "Continuing as guest.\n";
+        return false;
+    }
+};
+
+// ===========================================================================
+// System Controller – Handles all operations
+// ===========================================================================
+
+class LostFoundSystem {
+public:
+    void run() {
+        clearScreen();
+        fmt.printBanner();
+        login.doLogin();
+
+        bool running = true;
+        while (running) {
+            int choice = menu.showMainMenu();
+            try {
+                switch (choice) {
+                    case 1: addItem("Lost"); break;
+                    case 2: addItem("Found"); break;
+                    case 3: displayAll(); break;
+                    case 4: searchItems(); break;
+                    case 5: updateItem(); break;
+                    case 6: deleteItem(); break;
+                    case 7: running = false; break;
+                    default:
+                        cout << "Invalid input.\n";
+                }
+            } catch (const MyException &ex) {
+                ex.showMessage();
+            }
+        }
+    }
+
+private:
+    UserInput ui;
+    FileManager fm;
+    Formatter fmt;
+    Menu menu;
+    Login login;
+
+    // Add new item
+    void addItem(const string &status) {
+        clearScreen();
+        fmt.printBanner();
+
+        Item it;
+        it.id = ui.getInt("Enter Item ID: ");
+
+        cout << "Enter Name: ";
+        getline(cin, it.name);
+        it.name = trim(it.name);
+
+        cout << "Enter Description (optional): ";
+        getline(cin, it.description);
+
+        cout << "Enter Location: ";
+        getline(cin, it.location);
+        it.location = trim(it.location);
+
+        cout << "Enter Date: ";
+        getline(cin, it.date);
+        it.date = trim(it.date);
+
+        cout << "Enter Contact: ";
+        getline(cin, it.contact);
+        it.contact = trim(it.contact);
+
+        it.status = status;
+
+        fm.appendItem(it);
+        cout << "\nItem saved successfully.\n";
+        waitForEnter();
+    }
+
+    void displayAll() {
+        clearScreen();
+        fmt.printBanner();
+
+        vector<Item> list = fm.readAllItems();
+        if (list.empty()) {
+            cout << "No items found.\n";
+            waitForEnter();
+            return;
+        }
+
+        fmt.printTableHeader();
+        for (auto &it : list) it.display();
+        waitForEnter();
+    }
+
+    void searchItems() {
+        clearScreen();
+        fmt.printBanner();
+
+        cout << "Enter keyword: ";
+        string key;
+        getline(cin, key);
+        key = trim(key);
+
+        vector<Item> list = fm.readAllItems();
+        vector<Item> results;
+
+        for (auto &it : list) {
+            if (it.name.find(key) != string::npos)
+                results.push_back(it);
+        }
+
+        if (results.empty()) {
+            cout << "No matches found.\n";
+            waitForEnter();
+            return;
+        }
+
+        fmt.printTableHeader();
+        for (auto &it : results) it.display();
+        waitForEnter();
+    }
+
+    void updateItem() {
+        clearScreen();
+        fmt.printBanner();
+
+        int id = ui.getInt("Enter ID to update: ");
+        vector<Item> list = fm.readAllItems();
+        bool found = false;
+
+        for (auto &it : list) {
+            if (it.id == id) {
+                found = true;
+
+                cout << "\nCurrent Details:\n";
+                fmt.printTableHeader();
+                it.display();
+
+                cout << "\nEnter new name (leave blank to keep): ";
+                string s;
+                getline(cin, s);
+                if (!trim(s).empty()) it.name = trim(s);
+
+                cout << "Enter new location (leave blank to keep): ";
+                getline(cin, s);
+                if (!trim(s).empty()) it.location = trim(s);
+
+                cout << "Enter new date (leave blank to keep): ";
+                getline(cin, s);
+                if (!trim(s).empty()) it.date = trim(s);
+
+                cout << "Enter new contact (leave blank to keep): ";
+                getline(cin, s);
+                if (!trim(s).empty()) it.contact = trim(s);
+
+                fm.writeAllItems(list);
+                cout << "\nItem updated.\n";
+                break;
+            }
+        }
+
+        if (!found) cout << "Item not found.\n";
+        waitForEnter();
+    }
+
+    void deleteItem() {
+        clearScreen();
+        fmt.printBanner();
+
+        int id = ui.getInt("Enter ID to delete: ");
+        vector<Item> list = fm.readAllItems();
+        bool found = false;
+
+        for (size_t i = 0; i < list.size(); ++i) {
+            if (list[i].id == id) {
+                found = true;
+
+                cout << "\nItem found:\n";
+                fmt.printTableHeader();
+                list[i].display();
+
+                if (ui.confirm("Are you sure?")) {
+                    list.erase(list.begin() + i);
+                    fm.writeAllItems(list);
+                    cout << "\nItem deleted.\n";
+                } else {
+                    cout << "\nDeletion cancelled.\n";
+                }
+                break;
+            }
+        }
+
+        if (!found) cout << "Item not found.\n";
+        waitForEnter();
+    }
+};
+
+// ===========================================================================
+// main()
+// ===========================================================================
+
+int main() {
+    cout << "Welcome to Lost & Found Management System\n";
+    cout << "Demonstrating OOP, Templates, Exception Handling & File I/O.\n\n";
+
+    // Demonstrate template usage
+    Storage<int> s1(10);
+    Storage<string> s2("Hello");
+
+    cout << "Template Demo (Storage<int>): ";
+    s1.showValue();
+    cout << "Template Demo (Storage<string>): ";
+    s2.showValue();
+
+    LostFoundSystem system;
+    system.run();
+    return 0;
+}
